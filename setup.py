@@ -19,8 +19,7 @@ setup(
                 '-gencode=arch=compute_75,code=sm_75', '-gencode=arch=compute_75,code=compute_75'
             ],
         },
-        library_dirs= '/usr/local/lib64/'],
-        libraries=['nvinfer', 'nvinfer_plugin', 'nvonnxparser', 'opencv_core', 'opencv_imgproc', 'opencv_highgui'])
+        libraries=['nvinfer', 'nvinfer_plugin', 'nvonnxparser'])
     ],
     cmdclass={'build_ext': BuildExtension.with_options(no_python_abi_suffix=True)},
     install_requires=[
