@@ -162,11 +162,11 @@ def worker(rank, args, world, model, state):
             precision = "FP16"
 
         exported = model.export(input_size, args.batch, precision, calibration_files, args.calibration_table, args.verbose, onnx_only=onnx_only)
-        if onnx_only:
-            with open(args.export, 'wb') as out:
+        #if onnx_only:
+        with open(args.export, 'wb') as out:
                 out.write(exported)
-        else:
-            exported.save(args.export)
+        #else:
+        #   exported.save(args.export)
 
 def main(args=None):
     'Entry point for the retinanet command'
