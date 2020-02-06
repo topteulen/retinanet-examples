@@ -164,6 +164,7 @@ def worker(rank, args, world, model, state):
         exported = model.export(input_size, args.batch, precision, calibration_files, args.calibration_table, args.verbose, onnx_only=onnx_only)
         #if onnx_only:
         with open(args.export, 'wb') as out:
+                print('writing engine')
                 out.write(exported)
         #else:
         #   exported.save(args.export)
