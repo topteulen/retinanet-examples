@@ -136,8 +136,6 @@ def infer(model, path, detections_file, resize, max_size, batch_size, mixed_prec
                     coco_eval.accumulate()
                 coco_eval.summarize()
                 results = coco_eval.stats
-
-                print(coco_eval.stats)
                 # Create TensorBoard writer
                 if logdir is not None:
                     from tensorboardX import SummaryWriter
