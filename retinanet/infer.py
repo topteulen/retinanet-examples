@@ -13,7 +13,7 @@ from .dali import DaliDataIterator
 from .model import Model
 from .utils import Profiler
 
-def infer(model, path, detections_file, resize, max_size, batch_size, mixed_precision=True, is_master=True, world=0, annotations=None, use_dali=True, is_validation=False, verbose=True):
+def infer(model, path, detections_file, resize, max_size, batch_size, mixed_precision=True, is_master=True, world=0, annotations=None, use_dali=True, is_validation=False, verbose=True, logdir=None,test = False):
     'Run inference on images from path'
 
     backend = 'pytorch' if isinstance(model, Model) or isinstance(model, DDP) else 'tensorrt'
@@ -56,7 +56,6 @@ def infer(model, path, detections_file, resize, max_size, batch_size, mixed_prec
         print('     batch: {}, precision: {}'.format(batch_size,
             'unknown' if backend is 'tensorrt' else 'mixed' if mixed_precision else 'full'))
         print('Running inference...')
-
     results = []
     profiler = Profiler(['infer', 'fw'])
     with torch.no_grad():
@@ -118,7 +117,9 @@ def infer(model, path, detections_file, resize, max_size, batch_size, mixed_prec
                     'bbox': [x1, y1, x2 - x1 + 1, y2 - y1 + 1],
                     'category_id': cat
                 })
-
+	    if logdir is not None and test == True:
+	        writer.add_scalar('Infer_score', score,  iteration)
+	        writer.add_scalar('Infer_bbox', bbox, iteration)
         if detections:
             # Save detections
             if detections_file and verbose: print('Writing {}...'.format(detections_file))

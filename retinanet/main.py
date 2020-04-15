@@ -93,7 +93,7 @@ def load_model(args, verbose=False):
 
     elif args.command == 'infer' and ext in ['.engine', '.plan']:
         model = None
-    
+
     else:
         raise RuntimeError('Invalid model format "{}"!'.format(args.ext))
 
@@ -120,9 +120,9 @@ def worker(rank, args, world, model, state):
 
     if args.command == 'train':
         train.train(model, state, args.images, args.annotations,
-            args.val_images or args.images, args.val_annotations, args.resize, args.max_size, args.jitter, 
-            args.batch, int(args.iters * args.schedule), args.val_iters, not args.full_precision, args.lr, 
-            args.warmup, [int(m * args.schedule) for m in args.milestones], args.gamma, 
+            args.val_images or args.images, args.val_annotations, args.resize, args.max_size, args.jitter,
+            args.batch, int(args.iters * args.schedule), args.val_iters, not args.full_precision, args.lr,
+            args.warmup, [int(m * args.schedule) for m in args.milestones], args.gamma,
             is_master=(rank == 0), world=world, use_dali=args.with_dali,
             metrics_url=args.post_metrics, logdir=args.logdir, verbose=(rank == 0))
 
@@ -133,7 +133,7 @@ def worker(rank, args, world, model, state):
 
         infer.infer(model, args.images, args.output, args.resize, args.max_size, args.batch,
             annotations=args.annotations, mixed_precision=not args.full_precision,
-            is_master=(rank == 0), world=world, use_dali=args.with_dali, verbose=(rank == 0))
+            is_master=(rank == 0),logdir=args.logdir, world=world, use_dali=args.with_dali, verbose=(rank == 0),test = True)
 
     elif args.command == 'export':
         onnx_only = args.export.split('.')[-1] == 'onnx'
