@@ -144,7 +144,7 @@ def infer(model, path, detections_file, resize, max_size, batch_size, mixed_prec
                     if is_master and verbose:
                         print('Writing TensorBoard logs to: {}'.format(logdir))
                     writer = SummaryWriter(logdir=logdir)
-                    if results != None:
+                    if results != []:
                         writer.add_scalar('AP_Area=all_IoU=0.5', results[0])
                         writer.add_scalar('Test_2', results[1])
                         writer.add_scalar('Test_3', results[2])
