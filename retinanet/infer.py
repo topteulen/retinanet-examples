@@ -145,6 +145,8 @@ def infer(model, path, detections_file, resize, max_size, batch_size, mixed_prec
                         print('Infer writer: Writing TensorBoard logs to: {}'.format(logdir))
                     writer = SummaryWriter(logdir=logdir)
                     if results != []:
+                        print("results", results[0])
+                        print("iteration", iteration)
                         writer.add_scalar('AP_Area=all_IoU=0.5', results[0],iteration)
                         writer.add_scalar('Test_2', results[1],iteration)
                         writer.add_scalar('Test_3', results[2],iteration)
