@@ -124,7 +124,6 @@ def train(model, state, path, annotations, val_path, val_annotations, resize, ma
                     print(msg, flush=True)
 
                 if logdir is not None:
-                    print("faodsf", focal_loss)
                     writer.add_scalar('focal_loss', focal_loss,  iteration)
                     writer.add_scalar('box_loss', box_loss, iteration)
                     writer.add_scalar('learning_rate', learning_rate, iteration)
