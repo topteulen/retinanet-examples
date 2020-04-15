@@ -136,7 +136,7 @@ def infer(model, path, detections_file, resize, max_size, batch_size, mixed_prec
                     coco_eval.accumulate()
                 results = coco_eval.summarize()
                 print(coco_eval.accumulate())
-                print(coco_eval.stats())
+                print(coco_eval.stats)
                 # Create TensorBoard writer
                 if logdir is not None:
                     from tensorboardX import SummaryWriter
@@ -144,9 +144,10 @@ def infer(model, path, detections_file, resize, max_size, batch_size, mixed_prec
                         print('Writing TensorBoard logs to: {}'.format(logdir))
                     writer = SummaryWriter(logdir=logdir)
                     print(results)
-                    writer.add_scalar('Test_1', results[0])
-                    writer.add_scalar('Test_2', results[1])
-                    writer.add_scalar('Test_3', results[2])
+                    if results != None:
+                        writer.add_scalar('Test_1', results[0])
+                        writer.add_scalar('Test_2', results[1])
+                        writer.add_scalar('Test_3', results[2])
 
         else:
             print('No detections!')
