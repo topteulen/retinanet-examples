@@ -157,5 +157,6 @@ def infer(model, path, detections_file, resize, max_size, batch_size, mixed_prec
                         writer.add_scalar('Average Recall     (AR) @[ IoU=0.50:0.95 | area= small | maxDets=100 ] ', results[9],iteration)
                         writer.add_scalar('Average Recall     (AR) @[ IoU=0.50:0.95 | area=medium | maxDets=100 ]', results[10],iteration)
                         writer.add_scalar('Average Recall     (AR) @[ IoU=0.50:0.95 | area= large | maxDets=100 ]', results[11],iteration)
+                    writer.close()
         else:
             print('No detections!')
