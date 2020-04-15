@@ -134,8 +134,7 @@ def infer(model, path, detections_file, resize, max_size, batch_size, mixed_prec
                     coco_eval = COCOeval(data_iterator.coco, coco_pred, 'bbox')
                     coco_eval.evaluate()
                     coco_eval.accumulate()
-                results = coco_eval.summarize()
-                print(coco_eval.accumulate())
+                results = coco_eval.stats
                 print(coco_eval.stats)
                 # Create TensorBoard writer
                 if logdir is not None:
@@ -143,9 +142,8 @@ def infer(model, path, detections_file, resize, max_size, batch_size, mixed_prec
                     if is_master and verbose:
                         print('Writing TensorBoard logs to: {}'.format(logdir))
                     writer = SummaryWriter(logdir=logdir)
-                    print(results)
                     if results != None:
-                        writer.add_scalar('Test_1', results[0])
+                        writer.add_scalar('AP_Area=all_IoU=0.5', results[0])
                         writer.add_scalar('Test_2', results[1])
                         writer.add_scalar('Test_3', results[2])
 
