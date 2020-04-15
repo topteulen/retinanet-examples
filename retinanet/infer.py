@@ -13,7 +13,7 @@ from .dali import DaliDataIterator
 from .model import Model
 from .utils import Profiler
 
-def infer(model, path, detections_file, resize, max_size, batch_size, mixed_precision=True, is_master=True, world=0, annotations=None, use_dali=True, is_validation=False, verbose=True, logdir=None,test = False):
+def infer(model, path, detections_file, resize, max_size, batch_size, mixed_precision=True, is_master=True, world=0, annotations=None, use_dali=True, is_validation=False, verbose=True, logdir=None,test = False,iteration = 0):
     'Run inference on images from path'
 
     backend = 'pytorch' if isinstance(model, Model) or isinstance(model, DDP) else 'tensorrt'
@@ -142,12 +142,12 @@ def infer(model, path, detections_file, resize, max_size, batch_size, mixed_prec
                 if logdir is not None:
                     from tensorboardX import SummaryWriter
                     if is_master and verbose:
-                        print('Writing TensorBoard logs to: {}'.format(logdir))
+                        print('Infer writer: Writing TensorBoard logs to: {}'.format(logdir))
                     writer = SummaryWriter(logdir=logdir)
                     if results != []:
-                        writer.add_scalar('AP_Area=all_IoU=0.5', results[0])
-                        writer.add_scalar('Test_2', results[1])
-                        writer.add_scalar('Test_3', results[2])
+                        writer.add_scalar('AP_Area=all_IoU=0.5', results[0],iteration)
+                        writer.add_scalar('Test_2', results[1],iteration)
+                        writer.add_scalar('Test_3', results[2],iteration)
 
         else:
             print('No detections!')
