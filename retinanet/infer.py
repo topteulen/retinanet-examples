@@ -48,6 +48,12 @@ def infer(model, path, detections_file, resize, max_size, batch_size, mixed_prec
                                verbosity = 0)
 
         model.eval()
+    # Create TensorBoard writer
+    if logdir is not None:
+        from tensorboardX import SummaryWriter
+        if is_master and verbose:
+            print('Writing TensorBoard logs to: {}'.format(logdir))
+        writer = SummaryWriter(logdir=logdir)
 
     if verbose:
         print('   backend: {}'.format(backend))
