@@ -117,9 +117,9 @@ def infer(model, path, detections_file, resize, max_size, batch_size, mixed_prec
                     'bbox': [x1, y1, x2 - x1 + 1, y2 - y1 + 1],
                     'category_id': cat
                 })
-	    if logdir is not None and test == True:
-	        writer.add_scalar('Infer_score', score,  iteration)
-	        writer.add_scalar('Infer_bbox', bbox, iteration)
+        if logdir is not None and test == True:
+            writer.add_scalar('Infer_score', score,  iteration)
+            writer.add_scalar('Infer_bbox', bbox, iteration)
         if detections:
             # Save detections
             if detections_file and verbose: print('Writing {}...'.format(detections_file))
