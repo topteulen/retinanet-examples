@@ -134,7 +134,7 @@ def worker(rank, args, world, model, state):
 
         infer.infer(model, args.images, args.output, args.resize, args.max_size, args.batch,
             annotations=args.annotations, mixed_precision=not args.full_precision,
-            is_master=(rank == 0),logdir=args.logdir, world=world, use_dali=args.with_dali, verbose=(rank == 0))
+            is_master=(rank == 0), logdir=args.logdir, world=world, use_dali=args.with_dali, verbose=(rank == 0))
 
     elif args.command == 'export':
         onnx_only = args.export.split('.')[-1] == 'onnx'

@@ -13,7 +13,7 @@ from .dali import DaliDataIterator
 from .model import Model
 from .utils import Profiler
 
-def infer(model, path, detections_file, resize, max_size, batch_size, mixed_precision=True, is_master=True, world=0, annotations=None, use_dali=True, is_validation=False, verbose=True, logdir=None,iteration = 100):
+def infer(model, path, detections_file, resize, max_size, batch_size, mixed_precision=True, is_master=True, world=0, annotations=None, use_dali=True, is_validation=False, verbose=True, logdir=None, iteration = 100):
     'Run inference on images from path'
 
     backend = 'pytorch' if isinstance(model, Model) or isinstance(model, DDP) else 'tensorrt'
@@ -56,6 +56,7 @@ def infer(model, path, detections_file, resize, max_size, batch_size, mixed_prec
         print('     batch: {}, precision: {}'.format(batch_size,
             'unknown' if backend is 'tensorrt' else 'mixed' if mixed_precision else 'full'))
         print('Running inference...')
+
     results = []
     profiler = Profiler(['infer', 'fw'])
     with torch.no_grad():
@@ -117,6 +118,7 @@ def infer(model, path, detections_file, resize, max_size, batch_size, mixed_prec
                     'bbox': [x1, y1, x2 - x1 + 1, y2 - y1 + 1],
                     'category_id': cat
                 })
+
         if detections:
             # Save detections
             if detections_file and verbose: print('Writing {}...'.format(detections_file))
@@ -126,6 +128,7 @@ def infer(model, path, detections_file, resize, max_size, batch_size, mixed_prec
                 detections['categories'] = [data_iterator.coco.dataset['categories']]
             if detections_file:
                 json.dump(detections, open(detections_file, 'w'), indent=4)
+
             # Evaluate model on dataset
             if 'annotations' in data_iterator.coco.dataset:
                 if verbose: print('Evaluating model...')
@@ -143,18 +146,18 @@ def infer(model, path, detections_file, resize, max_size, batch_size, mixed_prec
                         print('Infer writer: Writing TensorBoard logs to: {}'.format(logdir))
                     writer = SummaryWriter(logdir=logdir)
                     if results != []:
-                        writer.add_scalar('Average Precision (AP) IoU=0.50:0.95  area all  maxDets=100', results[0],iteration)
-                        writer.add_scalar('Average Precision (AP) IoU=0.50  area all  maxDets=100', results[1],iteration)
-                        writer.add_scalar('Average Precision (AP) IoU=0.75  area all  maxDets=100', results[2],iteration)
-                        writer.add_scalar('Average Precision (AP) IoU=0.50:0.95  area small  maxDets=100', results[3],iteration)
-                        writer.add_scalar('Average Precision (AP) IoU=0.50:0.95  area=medium  maxDets=100', results[4],iteration)
-                        writer.add_scalar('Average Precision (AP) IoU=0.50:0.95  area=large  maxDets=100', results[5],iteration)
-                        writer.add_scalar('Average Recall (AR) IoU=0.50:0.95  area=all  maxDets=1', results[6],iteration)
-                        writer.add_scalar('Average Recall (AR) IoU=0.50:0.95  area=all  maxDets=10', results[7],iteration)
-                        writer.add_scalar('Average Recall (AR) IoU=0.50:0.95  area=all  maxDets=100', results[8],iteration)
-                        writer.add_scalar('Average Recall (AR) IoU=0.50:0.95  area= small  maxDets=100', results[9],iteration)
-                        writer.add_scalar('Average Recall (AR) IoU=0.50:0.95  area=medium  maxDets=100', results[10],iteration)
-                        writer.add_scalar('Average Recall (AR) IoU=0.50:0.95  area= large  maxDets=100', results[11],iteration)
+                        writer.add_scalar('Average Precision/IoU=0.50:0.95/area=all/maxDets=100', results[0],iteration)
+                        writer.add_scalar('Average Precision/IoU=0.50/area=all/maxDets=100', results[1],iteration)
+                        writer.add_scalar('Average Precision/IoU=0.75/area=all/maxDets=100', results[2],iteration)
+                        writer.add_scalar('Average Precision/IoU=0.50:0.95/area=small/maxDets=100', results[3],iteration)
+                        writer.add_scalar('Average Precision/IoU=0.50:0.95/area=medium/maxDets=100', results[4],iteration)
+                        writer.add_scalar('Average Precision/IoU=0.50:0.95/area=large/maxDets=100', results[5],iteration)
+                        writer.add_scalar('Average Recall/IoU=0.50:0.95/area=all/maxDets=1', results[6],iteration)
+                        writer.add_scalar('Average Recall/IoU=0.50:0.95/area=all/maxDets=10', results[7],iteration)
+                        writer.add_scalar('Average Recall/IoU=0.50:0.95/area=all/maxDets=100', results[8],iteration)
+                        writer.add_scalar('Average Recall/IoU=0.50:0.95/area= small/maxDets=100', results[9],iteration)
+                        writer.add_scalar('Average Recall/IoU=0.50:0.95/area=medium/maxDets=100', results[10],iteration)
+                        writer.add_scalar('Average Recall/IoU=0.50:0.95/area= large/maxDets=100', results[11],iteration)
                     writer.close()
         else:
             print('No detections!')
