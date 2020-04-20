@@ -1,5 +1,5 @@
 from statistics import mean
-from math import isfinite
+from math import isfinite 
 import torch
 from torch.optim import SGD
 from torch.optim.lr_scheduler import LambdaLR
@@ -25,7 +25,7 @@ def train(model, state, path, annotations, val_path, val_annotations, resize, ma
         model = model.cuda()
 
     # Setup optimizer and schedule
-    optimizer = SGD(model.parameters(), lr=lr, weight_decay=0.0001, momentum=0.9)
+    optimizer = SGD(model.parameters(), lr=lr, weight_decay=0.0001, momentum=0.9) 
 
     model, optimizer = amp.initialize(model, optimizer,
                                       opt_level = 'O2' if mixed_precision else 'O0',
@@ -33,7 +33,7 @@ def train(model, state, path, annotations, val_path, val_annotations, resize, ma
                                       loss_scale = 128.0,
                                       verbosity = is_master)
 
-    if world > 1:
+    if world > 1: 
         model = DistributedDataParallel(model)
     model.train()
 
@@ -159,3 +159,5 @@ def train(model, state, path, annotations, val_path, val_annotations, resize, ma
 
     if logdir is not None:
         writer.close()
+
+
