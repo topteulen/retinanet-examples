@@ -124,7 +124,7 @@ def worker(rank, args, world, model, state):
             args.val_images or args.images, args.val_annotations, args.resize, args.max_size, args.jitter, 
             args.batch, int(args.iters * args.schedule), args.val_iters, not args.full_precision, args.lr, 
             args.warmup, [int(m * args.schedule) for m in args.milestones], args.gamma, 
-            is_master=(rank == 0), world=world, use_dali=args.with_dali, 
+            is_master=(rank == 0), world=world, use_dali=args.with_dali,
             metrics_url=args.post_metrics, logdir=args.logdir, verbose=(rank == 0))
 
     elif args.command == 'infer':
