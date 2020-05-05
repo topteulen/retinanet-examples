@@ -1,6 +1,5 @@
 import os.path
 import io
-import numpy as np
 import math
 import torch
 import torch.nn as nn
@@ -8,16 +7,12 @@ import torch.nn as nn
 from . import backbones as backbones_mod
 from ._C import Engine
 from .box import generate_anchors, snap_to_anchors, decode, nms
-from .box import generate_anchors_rotated, snap_to_anchors_rotated, nms_rotated
 from .loss import FocalLoss, SmoothL1Loss
-
 
 class Model(nn.Module):
     'RetinaNet - https://arxiv.org/abs/1708.02002'
 
-    def __init__(self, backbones='ResNet50FPN', classes=80, 
-                ratios=[1.0, 2.0, 0.5], scales=[4 * 2 ** (i / 3) for i in range(3)],
-                angles=None, rotated_bbox=False, anchor_ious=[0.4, 0.5], config={}):
+    def __init__(self, backbones='ResNet50FPN', classes=80, config={}):
         super().__init__()
 
         if not isinstance(backbones, list):
@@ -26,19 +21,15 @@ class Model(nn.Module):
         self.backbones = nn.ModuleDict({b: getattr(backbones_mod, b)() for b in backbones})
         self.name = 'RetinaNet'
         self.exporting = False
-        self.rotated_bbox = rotated_bbox
-        self.anchor_ious = anchor_ious
 
-        self.ratios = ratios
-        self.scales = scales
-        self.angles = angles if angles is not None else \
-                    [-np.pi / 6, 0, np.pi / 6] if self.rotated_bbox else None
+        self.ratios = [1.0, 2.0, 0.5]
+        self.scales = [4 * 2**(i/3) for i in range(3)]
         self.anchors = {}
         self.classes = classes
 
-        self.threshold = config.get('threshold', 0.05)
-        self.top_n = config.get('top_n', 1000)
-        self.nms = config.get('nms', 0.5)
+        self.threshold  = config.get('threshold', 0.05)
+        self.top_n      = config.get('top_n', 1000)
+        self.nms        = config.get('nms', 0.5)
         self.detections = config.get('detections', 100)
 
         self.stride = max([b.stride for _, b in self.backbones.items()])
@@ -51,11 +42,9 @@ class Model(nn.Module):
             layers += [nn.Conv2d(256, out_size, 3, padding=1)]
             return nn.Sequential(*layers)
 
-        self.num_anchors = len(self.ratios) * len(self.scales)
-        self.num_anchors = self.num_anchors if not self.rotated_bbox else (self.num_anchors * len(self.angles))
-        self.cls_head = make_head(classes * self.num_anchors)
-        self.box_head = make_head(4 * self.num_anchors) if not self.rotated_bbox \
-                        else make_head(6 * self.num_anchors)  # theta -> cos(theta), sin(theta)
+        anchors = len(self.ratios) * len(self.scales)
+        self.cls_head = make_head(classes * anchors)
+        self.box_head = make_head(4 * anchors)
 
         self.cls_criterion = FocalLoss()
         self.box_criterion = SmoothL1Loss(beta=0.11)
@@ -64,7 +53,7 @@ class Model(nn.Module):
         return '\n'.join([
             '     model: {}'.format(self.name),
             '  backbone: {}'.format(', '.join([k for k, _ in self.backbones.items()])),
-            '   classes: {}, anchors: {}'.format(self.classes, self.num_anchors)
+            '   classes: {}, anchors: {}'.format(self.classes, len(self.ratios) * len(self.scales)),
         ])
 
     def initialize(self, pre_trained):
@@ -77,9 +66,7 @@ class Model(nn.Module):
             state_dict = self.state_dict()
             chk = torch.load(pre_trained, map_location=lambda storage, loc: storage)
             ignored = ['cls_head.8.bias', 'cls_head.8.weight']
-            if self.rotated_bbox:
-                ignored += ['box_head.8.bias', 'box_head.8.weight']
-            weights = {k: v for k, v in chk['state_dict'].items() if k not in ignored}
+            weights = { k: v for k, v in chk['state_dict'].items() if k not in ignored }
             state_dict.update(weights)
             self.load_state_dict(state_dict)
 
@@ -97,7 +84,6 @@ class Model(nn.Module):
                     nn.init.normal_(layer.weight, std=0.01)
                     if layer.bias is not None:
                         nn.init.constant_(layer.bias, val=0)
-
             self.cls_head.apply(initialize_layer)
             self.box_head.apply(initialize_layer)
 
@@ -107,12 +93,9 @@ class Model(nn.Module):
             b = - math.log((1 - pi) / pi)
             nn.init.constant_(layer.bias, b)
             nn.init.normal_(layer.weight, std=0.01)
-
         self.cls_head[-1].apply(initialize_prior)
-        if self.rotated_bbox:
-            self.box_head[-1].apply(initialize_prior)
 
-    def forward(self, x, rotated_bbox=None):
+    def forward(self, x):
         if self.training: x, targets = x
 
         # Backbones forward pass
@@ -133,43 +116,31 @@ class Model(nn.Module):
             self.strides = [x.shape[-1] // cls_head.shape[-1] for cls_head in cls_heads]
             return cls_heads, box_heads
 
-        global nms, generate_anchors
-        if self.rotated_bbox:
-            nms = nms_rotated
-            generate_anchors = generate_anchors_rotated
-
         # Inference post-processing
         decoded = []
         for cls_head, box_head in zip(cls_heads, box_heads):
             # Generate level's anchors
             stride = x.shape[-1] // cls_head.shape[-1]
             if stride not in self.anchors:
-                self.anchors[stride] = generate_anchors(stride, self.ratios, self.scales, self.angles)
+                self.anchors[stride] = generate_anchors(stride, self.ratios, self.scales)
 
             # Decode and filter boxes
-            decoded.append(decode(cls_head, box_head, stride, self.threshold, 
-                                self.top_n, self.anchors[stride], self.rotated_bbox))
+            decoded.append(decode(cls_head, box_head, stride,
+                self.threshold, self.top_n, self.anchors[stride]))
 
         # Perform non-maximum suppression
         decoded = [torch.cat(tensors, 1) for tensors in zip(*decoded)]
         return nms(*decoded, self.nms, self.detections)
 
     def _extract_targets(self, targets, stride, size):
-        global generate_anchors, snap_to_anchors
-        if self.rotated_bbox:
-            generate_anchors = generate_anchors_rotated
-            snap_to_anchors = snap_to_anchors_rotated
         cls_target, box_target, depth = [], [], []
         for target in targets:
             target = target[target[:, -1] > -1]
             if stride not in self.anchors:
-                self.anchors[stride] = generate_anchors(stride, self.ratios, self.scales, self.angles)
-
-            anchors = self.anchors[stride]
-            if not self.rotated_bbox:
-                anchors = anchors.to(targets.device)
-            snapped = snap_to_anchors(target, [s * stride for s in size[::-1]], stride, 
-                                    anchors, self.classes, targets.device, self.anchor_ious)
+                self.anchors[stride] = generate_anchors(stride, self.ratios, self.scales)
+            snapped = snap_to_anchors(
+                target, [s * stride for s in size[::-1]], stride,
+                self.anchors[stride].to(targets.device), self.classes, targets.device)
             for l, s in zip((cls_target, box_target, depth), snapped): l.append(s)
         return torch.stack(cls_target), torch.stack(box_target), torch.stack(depth)
 
@@ -203,12 +174,8 @@ class Model(nn.Module):
         checkpoint = {
             'backbone': [k for k, _ in self.backbones.items()],
             'classes': self.classes,
-            'state_dict': self.state_dict(),
-            'ratios': self.ratios,
-            'scales': self.scales
+            'state_dict': self.state_dict()
         }
-        if self.rotated_bbox and self.angles:
-            checkpoint['angles'] = self.angles
 
         for key in ('iteration', 'optimizer', 'scheduler'):
             if key in state:
@@ -217,19 +184,13 @@ class Model(nn.Module):
         torch.save(checkpoint, state['path'])
 
     @classmethod
-    def load(cls, filename, rotated_bbox=False):
+    def load(cls, filename):
         if not os.path.isfile(filename):
             raise ValueError('No checkpoint {}'.format(filename))
 
         checkpoint = torch.load(filename, map_location=lambda storage, loc: storage)
-        kwargs = {}
-        for i in ['ratios', 'scales', 'angles']:
-            if i in checkpoint:
-                kwargs[i] = checkpoint[i]
-        if ('angles' in checkpoint) or rotated_bbox:
-            kwargs['rotated_bbox'] = True
         # Recreate model from checkpoint instead of from individual backbones
-        model = cls(backbones=checkpoint['backbone'], classes=checkpoint['classes'], **kwargs)
+        model = cls(backbones=checkpoint['backbone'], classes=checkpoint['classes'])
         model.load_state_dict(checkpoint['state_dict'])
 
         state = {}
@@ -244,23 +205,23 @@ class Model(nn.Module):
 
     def export(self, size, batch, precision, calibration_files, calibration_table, verbose, onnx_only=False):
 
-        import torch.onnx.symbolic_opset10 as onnx_symbolic
-        def upsample_nearest2d(g, input, output_size, *args):
-            # Currently, TRT 5.1/6.0/7.0 ONNX Parser does not support all ONNX ops
+        import torch.onnx.symbolic_opset9 as onnx_symbolic
+        def upsample_nearest2d(g, input, output_size):
+            # Currently, TRT 5.1/6.0 ONNX Parser does not support all ONNX ops
             # needed to support dynamic upsampling ONNX forumlation
             # Here we hardcode scale=2 as a temporary workaround
-            scales = g.op("Constant", value_t=torch.tensor([1., 1., 2., 2.]))
-            return g.op("Resize", input, scales, mode_s="nearest")
+            scales = g.op("Constant", value_t=torch.tensor([1.,1.,2.,2.]))
+            return g.op("Upsample", input, scales, mode_s="nearest")
 
         onnx_symbolic.upsample_nearest2d = upsample_nearest2d
-
+ 
         # Export to ONNX
         print('Exporting to ONNX...')
         self.exporting = True
         onnx_bytes = io.BytesIO()
         zero_input = torch.zeros([1, 3, *size]).cuda()
-        extra_args = {'opset_version': 10, 'verbose': verbose}
-        torch.onnx.export(self.cuda(), zero_input, onnx_bytes, **extra_args)
+        extra_args = { 'verbose': verbose }
+        torch.onnx.export(self.cuda(), zero_input, onnx_bytes, *extra_args)
         self.exporting = False
 
         if onnx_only:
@@ -268,15 +229,7 @@ class Model(nn.Module):
 
         # Build TensorRT engine
         model_name = '_'.join([k for k, _ in self.backbones.items()])
-        anchors = []
-        if not self.rotated_bbox:
-            anchors = [generate_anchors(stride, self.ratios, self.scales, 
-                    self.angles).view(-1).tolist() for stride in self.strides]
-        else:
-            anchors = [generate_anchors_rotated(stride, self.ratios, self.scales, 
-                    self.angles)[0].view(-1).tolist() for stride in self.strides]
-        # Set batch_size = 1 batch/GPU for EXPLICIT_BATCH compatibility in TRT
-        batch = 1
+        anchors = [generate_anchors(stride, self.ratios, self.scales).view(-1).tolist() 
+            for stride in self.strides]
         return Engine(onnx_bytes.getvalue(), len(onnx_bytes.getvalue()), batch, precision,
-                      self.threshold, self.top_n, anchors, self.rotated_bbox, self.nms, self.detections, 
-                      calibration_files, model_name, calibration_table, verbose)
+            self.threshold, self.top_n, anchors, self.nms, self.detections, calibration_files, model_name, calibration_table, verbose)
