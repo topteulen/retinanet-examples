@@ -27,17 +27,17 @@
 #include <cassert>
 #include <vector>
 
-#include "../cuda/decode.h"
+#include "../cuda/decode_rotate.h"
 
 using namespace nvinfer1;
 
-#define RETINANET_PLUGIN_NAME "RetinaNetDecode"
+#define RETINANET_PLUGIN_NAME "RetinaNetDecodeRotate"
 #define RETINANET_PLUGIN_VERSION "1"
 #define RETINANET_PLUGIN_NAMESPACE ""
 
 namespace retinanet {
 
-class DecodePlugin : public IPluginV2Ext {
+class DecodeRotatePlugin : public IPluginV2Ext {
   float _score_thresh;
   int _top_n;
   std::vector<float> _anchors;
@@ -91,26 +91,26 @@ protected:
   }
 
 public:
-  DecodePlugin(float score_thresh, int top_n, std::vector<float> const& anchors, int scale)
+  DecodeRotatePlugin(float score_thresh, int top_n, std::vector<float> const& anchors, int scale)
     : _score_thresh(score_thresh), _top_n(top_n), _anchors(anchors), _scale(scale) {}
 
-  DecodePlugin(float score_thresh, int top_n, std::vector<float> const& anchors, int scale,
+  DecodeRotatePlugin(float score_thresh, int top_n, std::vector<float> const& anchors, int scale,
     size_t height, size_t width, size_t num_anchors, size_t num_classes)
     : _score_thresh(score_thresh), _top_n(top_n), _anchors(anchors), _scale(scale),
       _height(height), _width(width), _num_anchors(num_anchors), _num_classes(num_classes) {}
 
-  DecodePlugin(void const* data, size_t length) {
+  DecodeRotatePlugin(void const* data, size_t length) {
       this->deserialize(data, length);
   }
 
   const char *getPluginType() const override {
     return RETINANET_PLUGIN_NAME;
   }
- 
+
   const char *getPluginVersion() const override {
     return RETINANET_PLUGIN_VERSION;
   }
-  
+
   int getNbOutputs() const override {
     return 3;
   }
@@ -119,12 +119,13 @@ public:
                                      const Dims *inputs, int nbInputDims) override {
     assert(nbInputDims == 2);
     assert(index < this->getNbOutputs());
-    return Dims3(_top_n * (index == 1 ? 4 : 1), 1, 1);
+    return Dims3(_top_n * (index == 1 ? 6 : 1), 1, 1);
   }
 
   bool supportsFormat(DataType type, PluginFormat format) const override {
     return type == DataType::kFLOAT && format == PluginFormat::kLINEAR;
   }
+
 
   int initialize() override { return 0; }
 
@@ -132,8 +133,8 @@ public:
 
   size_t getWorkspaceSize(int maxBatchSize) const override {
     if (size < 0) {
-      size = cuda::decode(maxBatchSize, nullptr, nullptr, _height, _width, _scale,
-        _num_anchors, _num_classes, _anchors, _score_thresh, _top_n, 
+      size = cuda::decode_rotate(maxBatchSize, nullptr, nullptr, _height, _width, _scale,
+        _num_anchors, _num_classes, _anchors, _score_thresh, _top_n,
         nullptr, 0, nullptr);
     }
     return size;
@@ -142,7 +143,7 @@ public:
   int enqueue(int batchSize,
               const void *const *inputs, void **outputs,
               void *workspace, cudaStream_t stream) override {
-    return cuda::decode(batchSize, inputs, outputs, _height, _width, _scale,
+    return cuda::decode_rotate(batchSize, inputs, outputs, _height, _width, _scale,
       _num_anchors, _num_classes, _anchors, _score_thresh, _top_n,
       workspace, getWorkspaceSize(batchSize), stream);
   }
@@ -154,7 +155,7 @@ public:
   const char *getPluginNamespace() const override {
     return RETINANET_PLUGIN_NAMESPACE;
   }
-  
+
   void setPluginNamespace(const char *N) override {
 
   }
@@ -166,7 +167,7 @@ public:
     return DataType::kFLOAT;
   }
 
-  bool isOutputBroadcastAcrossBatch(int outputIndex, const bool* inputIsBroadcasted, 
+  bool isOutputBroadcastAcrossBatch(int outputIndex, const bool* inputIsBroadcasted,
     int nbInputs) const { return false; }
 
   bool canBroadcastInputAcrossBatch(int inputIndex) const { return false; }
@@ -175,7 +176,7 @@ public:
     const DataType* inputTypes, const DataType* outputTypes, const bool* inputIsBroadcast,
     const bool* outputIsBroadcast, PluginFormat floatFormat, int maxBatchSize)
   {
-    assert(*inputTypes == nvinfer1::DataType::kFLOAT && 
+    assert(*inputTypes == nvinfer1::DataType::kFLOAT &&
       floatFormat == nvinfer1::PluginFormat::kLINEAR);
     assert(nbInputs == 2);
     assert(nbOutputs == 3);
@@ -185,12 +186,12 @@ public:
     assert(scores_dims.d[2] == boxes_dims.d[2]);
     _height = scores_dims.d[1];
     _width = scores_dims.d[2];
-    _num_anchors = boxes_dims.d[0] / 4; 
+    _num_anchors = boxes_dims.d[0] / 6;
     _num_classes = scores_dims.d[0] / _num_anchors;
   }
 
   IPluginV2Ext *clone() const override {
-    return new DecodePlugin(_score_thresh, _top_n, _anchors, _scale, _height, _width, 
+    return new DecodeRotatePlugin(_score_thresh, _top_n, _anchors, _scale, _height, _width,
       _num_anchors, _num_classes);
   }
 
@@ -206,9 +207,9 @@ private:
   }
 };
 
-class DecodePluginCreator : public IPluginCreator {
+class DecodeRotatePluginCreator : public IPluginCreator {
 public:
-  DecodePluginCreator() {}
+  DecodeRotatePluginCreator() {}
 
   const char *getPluginName () const override {
     return RETINANET_PLUGIN_NAME;
@@ -223,7 +224,7 @@ public:
   }
 
   IPluginV2 *deserializePlugin (const char *name, const void *serialData, size_t serialLength) override {
-    return new DecodePlugin(serialData, serialLength);
+    return new DecodeRotatePlugin(serialData, serialLength);
   }
 
   void setPluginNamespace(const char *N) override {}
@@ -231,7 +232,7 @@ public:
   IPluginV2 *createPlugin (const char *name, const PluginFieldCollection *fc) override { return nullptr; }
 };
 
-REGISTER_TENSORRT_PLUGIN(DecodePluginCreator);
+REGISTER_TENSORRT_PLUGIN(DecodeRotatePluginCreator);
 
 }
 

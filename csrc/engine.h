@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019, NVIDIA CORPORATION. All rights reserved.
+ * Copyright (c) 2020, NVIDIA CORPORATION. All rights reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -42,7 +42,7 @@ public:
 
     // Create engine from serialized onnx model
     Engine(const char *onnx_model, size_t onnx_size, size_t batch, string precision,
-        float score_thresh, int top_n, const vector<vector<float>>& anchors,
+        float score_thresh, int top_n, const vector<vector<float>>& anchors, bool rotated,
         float nms_thresh, int detections_per_im, const vector<string>& calibration_files,
         string model_name, string calibration_table, bool verbose, size_t workspace_size=(1ULL << 30));
 
@@ -52,7 +52,7 @@ public:
     void save(const string &path);
 
     // Infer using pre-allocated GPU buffers {data, scores, boxes, classes}
-    void infer(vector<void *> &buffers, int batch=1);
+    void infer(vector<void *> &buffers);
 
     // Get (h, w) size of the fixed input
     vector<int> getInputSize();
@@ -65,7 +65,7 @@ public:
 
     // Get stride
     int getStride();
-
+    
 private:
     IRuntime *_runtime = nullptr;
     ICudaEngine *_engine = nullptr;

@@ -20,87 +20,67 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
-#pragma once 
+#pragma once
 
 #include <NvInfer.h>
 
-#include <cassert>
 #include <vector>
+#include <cassert>
 
-#include "../cuda/decode.h"
+#include "../cuda/nms_iou.h"
 
 using namespace nvinfer1;
 
-#define RETINANET_PLUGIN_NAME "RetinaNetDecode"
+#define RETINANET_PLUGIN_NAME "RetinaNetNMSRotate"
 #define RETINANET_PLUGIN_VERSION "1"
 #define RETINANET_PLUGIN_NAMESPACE ""
 
 namespace retinanet {
 
-class DecodePlugin : public IPluginV2Ext {
-  float _score_thresh;
-  int _top_n;
-  std::vector<float> _anchors;
-  float _scale;
+class NMSRotatePlugin : public IPluginV2Ext {
+  float _nms_thresh;
+  int _detections_per_im;
 
-  size_t _height;
-  size_t _width;
-  size_t _num_anchors;
-  size_t _num_classes;
+  size_t _count;
 
   mutable int size = -1;
 
 protected:
   void deserialize(void const* data, size_t length) {
     const char* d = static_cast<const char*>(data);
-    read(d, _score_thresh);
-    read(d, _top_n);
-    size_t anchors_size;
-    read(d, anchors_size);
-    while( anchors_size-- ) {
-      float val;
-      read(d, val);
-      _anchors.push_back(val);
-    }
-    read(d, _scale);
-    read(d, _height);
-    read(d, _width);
-    read(d, _num_anchors);
-    read(d, _num_classes);
+    read(d, _nms_thresh);
+    read(d, _detections_per_im);
+    read(d, _count);
   }
 
   size_t getSerializationSize() const override {
-    return sizeof(_score_thresh) + sizeof(_top_n)
-      + sizeof(size_t) + sizeof(float) * _anchors.size() + sizeof(_scale)
-      + sizeof(_height) + sizeof(_width) + sizeof(_num_anchors) + sizeof(_num_classes);
+    return sizeof(_nms_thresh) + sizeof(_detections_per_im)
+      + sizeof(_count);
   }
 
   void serialize(void *buffer) const override {
     char* d = static_cast<char*>(buffer);
-    write(d, _score_thresh);
-    write(d, _top_n);
-    write(d, _anchors.size());
-    for( auto &val : _anchors ) {
-      write(d, val);
-    }
-    write(d, _scale);
-    write(d, _height);
-    write(d, _width);
-    write(d, _num_anchors);
-    write(d, _num_classes);
+    write(d, _nms_thresh);
+    write(d, _detections_per_im);
+    write(d, _count);
   }
 
 public:
-  DecodePlugin(float score_thresh, int top_n, std::vector<float> const& anchors, int scale)
-    : _score_thresh(score_thresh), _top_n(top_n), _anchors(anchors), _scale(scale) {}
+  NMSRotatePlugin(float nms_thresh, int detections_per_im)
+    : _nms_thresh(nms_thresh), _detections_per_im(detections_per_im) {
+    assert(nms_thresh > 0);
+    assert(detections_per_im > 0);
+  }
 
-  DecodePlugin(float score_thresh, int top_n, std::vector<float> const& anchors, int scale,
-    size_t height, size_t width, size_t num_anchors, size_t num_classes)
-    : _score_thresh(score_thresh), _top_n(top_n), _anchors(anchors), _scale(scale),
-      _height(height), _width(width), _num_anchors(num_anchors), _num_classes(num_classes) {}
+  NMSRotatePlugin(float nms_thresh, int detections_per_im, size_t count)
+    : _nms_thresh(nms_thresh), _detections_per_im(detections_per_im), _count(count) {
+    assert(nms_thresh > 0);
+    assert(detections_per_im > 0);
+    assert(count > 0);
+  }
 
-  DecodePlugin(void const* data, size_t length) {
-      this->deserialize(data, length);
+  NMSRotatePlugin(void const* data, size_t length) {
+    this->deserialize(data, length);
   }
 
   const char *getPluginType() const override {
@@ -117,9 +97,9 @@ public:
 
   Dims getOutputDimensions(int index,
                                      const Dims *inputs, int nbInputDims) override {
-    assert(nbInputDims == 2);
+    assert(nbInputDims == 3);
     assert(index < this->getNbOutputs());
-    return Dims3(_top_n * (index == 1 ? 4 : 1), 1, 1);
+    return Dims3(_detections_per_im * (index == 1 ? 6 : 1), 1, 1);
   }
 
   bool supportsFormat(DataType type, PluginFormat format) const override {
@@ -132,8 +112,8 @@ public:
 
   size_t getWorkspaceSize(int maxBatchSize) const override {
     if (size < 0) {
-      size = cuda::decode(maxBatchSize, nullptr, nullptr, _height, _width, _scale,
-        _num_anchors, _num_classes, _anchors, _score_thresh, _top_n, 
+      size = cuda::nms_rotate(maxBatchSize, nullptr, nullptr, _count, 
+        _detections_per_im, _nms_thresh, 
         nullptr, 0, nullptr);
     }
     return size;
@@ -142,21 +122,21 @@ public:
   int enqueue(int batchSize,
               const void *const *inputs, void **outputs,
               void *workspace, cudaStream_t stream) override {
-    return cuda::decode(batchSize, inputs, outputs, _height, _width, _scale,
-      _num_anchors, _num_classes, _anchors, _score_thresh, _top_n,
+    return cuda::nms_rotate(batchSize, inputs, outputs, _count, 
+      _detections_per_im, _nms_thresh,
       workspace, getWorkspaceSize(batchSize), stream);
   }
 
   void destroy() override {
     delete this;
-  };
+  }
 
   const char *getPluginNamespace() const override {
     return RETINANET_PLUGIN_NAMESPACE;
   }
   
   void setPluginNamespace(const char *N) override {
-
+    
   }
 
   // IPluginV2Ext Methods
@@ -175,23 +155,16 @@ public:
     const DataType* inputTypes, const DataType* outputTypes, const bool* inputIsBroadcast,
     const bool* outputIsBroadcast, PluginFormat floatFormat, int maxBatchSize)
   {
-    assert(*inputTypes == nvinfer1::DataType::kFLOAT && 
+    assert(*inputTypes == nvinfer1::DataType::kFLOAT &&
       floatFormat == nvinfer1::PluginFormat::kLINEAR);
-    assert(nbInputs == 2);
-    assert(nbOutputs == 3);
-    auto const& scores_dims = inputDims[0];
-    auto const& boxes_dims = inputDims[1];
-    assert(scores_dims.d[1] == boxes_dims.d[1]);
-    assert(scores_dims.d[2] == boxes_dims.d[2]);
-    _height = scores_dims.d[1];
-    _width = scores_dims.d[2];
-    _num_anchors = boxes_dims.d[0] / 4; 
-    _num_classes = scores_dims.d[0] / _num_anchors;
+    assert(nbInputs == 3);
+    assert(inputDims[0].d[0] == inputDims[2].d[0]);
+    assert(inputDims[1].d[0] == inputDims[2].d[0] * 6);
+    _count = inputDims[0].d[0];
   }
 
   IPluginV2Ext *clone() const override {
-    return new DecodePlugin(_score_thresh, _top_n, _anchors, _scale, _height, _width, 
-      _num_anchors, _num_classes);
+    return new NMSRotatePlugin(_nms_thresh, _detections_per_im, _count);
   }
 
 private:
@@ -206,10 +179,13 @@ private:
   }
 };
 
-class DecodePluginCreator : public IPluginCreator {
+class NMSRotatePluginCreator : public IPluginCreator {
 public:
-  DecodePluginCreator() {}
-
+  NMSRotatePluginCreator() {}
+  
+  const char *getPluginNamespace() const override {
+    return RETINANET_PLUGIN_NAMESPACE;
+  }
   const char *getPluginName () const override {
     return RETINANET_PLUGIN_NAME;
   }
@@ -218,12 +194,8 @@ public:
     return RETINANET_PLUGIN_VERSION;
   }
  
-  const char *getPluginNamespace() const override {
-    return RETINANET_PLUGIN_NAMESPACE;
-  }
-
   IPluginV2 *deserializePlugin (const char *name, const void *serialData, size_t serialLength) override {
-    return new DecodePlugin(serialData, serialLength);
+    return new NMSRotatePlugin(serialData, serialLength);
   }
 
   void setPluginNamespace(const char *N) override {}
@@ -231,7 +203,7 @@ public:
   IPluginV2 *createPlugin (const char *name, const PluginFieldCollection *fc) override { return nullptr; }
 };
 
-REGISTER_TENSORRT_PLUGIN(DecodePluginCreator);
+REGISTER_TENSORRT_PLUGIN(NMSRotatePluginCreator);
 
 }
 

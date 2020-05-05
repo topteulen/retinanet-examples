@@ -1,10 +1,10 @@
-# RetinaNet Examples
+# NVIDIA Object Detection Toolkit (ODTK)
 
 **Fast** and **accurate** single stage object detection with end-to-end GPU optimization.
 
 ## Description
 
-[RetinaNet](#references) is a single shot object detector with multiple backbones offering various performance/accuracy trade-offs.
+ODTK is a single shot object detector with various backbones and detection heads. This allows performance/accuracy trade-offs.
 
 It is optimized for end-to-end GPU processing using:
 * The [PyTorch](https://pytorch.org) deep learning framework with [ONNX](https://onnx.ai) support
@@ -13,54 +13,47 @@ It is optimized for end-to-end GPU processing using:
 * NVIDIA [TensorRT](https://developer.nvidia.com/tensorrt) for high-performance inference
 * NVIDIA [DeepStream](https://developer.nvidia.com/deepstream-sdk) for optimized real-time video streams support
 
-## Disclaimer
+## Rotated bounding box detections
 
-This is a research project, not an official NVIDIA product.
+This repo now supports rotated bounding box detections. See [rotated detections training](TRAINING.md#rotated-detections) and [rotated detections inference](INFERENCE.md#rotated-detections) documents for more information on how to use the `--rotated-bbox` command. 
+
+Bounding box annotations are described by `[x, y, w, h, theta]`. 
 
 ## Performance
 
 The detection pipeline allows the user to select a specific backbone depending on the latency-accuracy trade-off preferred.
 
-Backbone | Resize | mAP @[IoU=0.50:0.95] | Training Time on [DGX1v](https://www.nvidia.com/en-us/data-center/dgx-1/) | TensorRT Inference Latency FP16 on [V100](https://www.nvidia.com/en-us/data-center/tesla-v100/) | TensorRT Inference Latency INT8 on [T4](https://www.nvidia.com/en-us/data-center/tesla-t4/)
---- | :---: | :---: | :---: | :---: | :---:
-ResNet18FPN | 800 | 0.318 | 5 hrs  | 12 ms/im | 12 ms/im
-ResNet34FPN | 800 | 0.343 | 6 hrs  | 14 ms/im | 14 ms/im
-ResNet50FPN | 800 | 0.358 | 7 hrs  | 16 ms/im | 16 ms/im
-ResNet101FPN | 800 | 0.376 | 10 hrs | 20 ms/im | 20 ms/im
-ResNet152FPN | 800 | 0.393 | 12 hrs | 25 ms/im | 24 ms/im
+ODTK **RetinaNet** model accuracy and inference latency & FPS (frames per seconds) for [COCO 2017](http://cocodataset.org/#detection-2017) (train/val) after full training schedule. Inference results include bounding boxes post-processing for a batch size of 1. Inference measured at `--resize 800` using `--with-dali` on a FP16 TensorRT engine.
 
-Training results for [COCO 2017](http://cocodataset.org/#detection-2017) (train/val) after full training schedule with default parameters. Inference results include bounding boxes post-processing for a batch size of 1.
+Backbone |  mAP @[IoU=0.50:0.95] | Training Time on [DGX1v](https://www.nvidia.com/en-us/data-center/dgx-1/) | Inference latency FP16 on [V100](https://www.nvidia.com/en-us/data-center/tesla-v100/) | Inference latency INT8 on [T4](https://www.nvidia.com/en-us/data-center/tesla-t4/)
+--- | :---: | :---: | :---: | :---:
+ResNet18FPN | 0.318 | 5 hrs  | 14 ms; 71 FPS | 18 ms; 56 FPS
+MobileNetV2FPN | 0.333 | | 14 ms; 74 FPS | 18 ms; 56 FPS
+ResNet34FPN | 0.343 | 6 hrs  | 16 ms; 64 FPS | 20 ms; 50 FPS
+ResNet50FPN | 0.358 | 7 hrs  | 18 ms; 56 FPS | 22 ms; 45 FPS
+ResNet101FPN | 0.376 | 10 hrs | 22 ms; 46 FPS | 27 ms; 37 FPS
+ResNet152FPN | 0.393 | 12 hrs | 26 ms; 38 FPS | 33 ms; 31 FPS
 
 ## Installation
 
-For best performance, we encourage using the latest [PyTorch NGC docker container](https://ngc.nvidia.com/catalog/containers/nvidia:pytorch):
-```bash
-docker run --gpus all --rm --ipc=host -it nvcr.io/nvidia/pytorch:19.10-py3
-```
+For best performance, use the latest [PyTorch NGC docker container](https://ngc.nvidia.com/catalog/containers/nvidia:pytorch). Clone this repository, build and run your own image:
 
-From the container, simply install retinanet using `pip`:
-```bash
-pip install --no-cache-dir git+https://github.com/nvidia/retinanet-examples
-```
-
-Or you can clone this repository, build and run your own image:
 ```bash
 git clone https://github.com/nvidia/retinanet-examples
-docker build -t retinanet:latest retinanet-examples/
-docker run --gpus all --rm --ipc=host -it retinanet:latest
+docker build -t odtk:latest retinanet-examples/
+docker run --gpus all --rm --ipc=host -it odtk:latest
 ```
 
 ## Usage
 
-Training, inference, evaluation and model export can be done through the `retinanet` utility.
-
-For more details refer to the [INFERENCE](INFERENCE.md) and [TRAINING](TRAINING.md) documentation.
+Training, inference, evaluation and model export can be done through the `odtk` utility. 
+For more details, including a list of parameters, please refer to the [TRAINING](TRAINING.md) and [INFERENCE](INFERENCE.md) documentation.
 
 ### Training
 
 Train a detection model on [COCO 2017](http://cocodataset.org/#download) from pre-trained backbone:
 ```bash
-retinanet train retinanet_rn50fpn.pth --backbone ResNet50FPN \
+odtk train retinanet_rn50fpn.pth --backbone ResNet50FPN \
     --images /coco/images/train2017/ --annotations /coco/annotations/instances_train2017.json \
     --val-images /coco/images/val2017/ --val-annotations /coco/annotations/instances_val2017.json
 ```
@@ -69,7 +62,7 @@ retinanet train retinanet_rn50fpn.pth --backbone ResNet50FPN \
 
 Fine-tune a pre-trained model on your dataset. In the example below we use [Pascal VOC](http://host.robots.ox.ac.uk/pascal/VOC/voc2012/index.html) with [JSON annotations](https://storage.googleapis.com/coco-dataset/external/PASCAL_VOC.zip):
 ```bash
-retinanet train model_mydataset.pth --backbone ResNet50FPN \
+odtk train model_mydataset.pth --backbone ResNet50FPN \
     --fine-tune retinanet_rn50fpn.pth \
     --classes 20 --iters 10000 --val-iters 1000 --lr 0.0005 \
     --resize 512 --jitter 480 640 --images /voc/JPEGImages/ \
@@ -82,38 +75,37 @@ Note: the shorter side of the input images will be resized to `resize` as long a
 
 Evaluate your detection model on [COCO 2017](http://cocodataset.org/#download):
 ```bash
-retinanet infer retinanet_rn50fpn.pth --images /coco/images/val2017/ --annotations /coco/annotations/instances_val2017.json
+odtk infer retinanet_rn50fpn.pth --images /coco/images/val2017/ --annotations /coco/annotations/instances_val2017.json
 ```
 
 Run inference on [your dataset](#datasets):
 ```bash
-retinanet infer retinanet_rn50fpn.pth --images /dataset/val --output detections.json
+odtk infer retinanet_rn50fpn.pth --images /dataset/val --output detections.json
 ```
 
 ### Optimized Inference with TensorRT
 
 For faster inference, export the detection model to an optimized FP16 TensorRT engine:
 ```bash
-retinanet export model.pth engine.plan
+odtk export model.pth engine.plan
 ```
-Note: for older versions of TensorRT (prior to TensorRT 5.1 / 19.03 containers) the ONNX opset version should be specified (using `--opset 8` for instance).
 
 Evaluate the model with TensorRT backend on [COCO 2017](http://cocodataset.org/#download):
 ```bash
-retinanet infer engine.plan --images /coco/images/val2017/ --annotations /coco/annotations/instances_val2017.json
+odtk infer engine.plan --images /coco/images/val2017/ --annotations /coco/annotations/instances_val2017.json
 ```
 
 ### INT8 Inference with TensorRT
 
 For even faster inference, do INT8 calibration to create an optimized INT8 TensorRT engine:
 ```bash
-retinanet export model.pth engine.plan --int8 --calibration-images /coco/images/val2017/
+odtk export model.pth engine.plan --int8 --calibration-images /coco/images/val2017/
 ```
 This will create an INT8CalibrationTable file that can be used to create INT8 TensorRT engines for the same model later on without needing to do calibration.
 
 Or create an optimized INT8 TensorRT engine using a cached calibration table:
 ```bash
-retinanet export model.pth engine.plan --int8 --calibration-table /path/to/INT8CalibrationTable
+odtk export model.pth engine.plan --int8 --calibration-table /path/to/INT8CalibrationTable
 ```
 
 ## Datasets
@@ -130,13 +122,32 @@ When converting the annotations from your own dataset into JSON, the following e
         "id" : int,
         "image_id" : int, 
         "category_id" : int,
-        "bbox" : [x, y, w, h]
+        "bbox" : [x, y, w, h]   # all floats
+        "area": float           # w * h. Required for validation scores
+        "iscrowd": 0            # Required for validation scores
     }],
     "categories": [{
         "id" : int
     ]}
 }
 ```
+
+If using the `--rotated-bbox` flag for rotated detections, add an additional float `theta` to the annotations. To get validation scores you also need to fill the `segmentation` section.
+```
+        "bbox" : [x, y, w, h, theta]    # all floats, where theta is measured in radians anti-clockwise from the x-axis.
+        "segmentation" : [[x1, y1, x2, y2, x3, y3, x4, y4]]
+                                        # Required for validation scores.
+```
+
+## Disclaimer
+
+This is a research project, not an official NVIDIA product.
+
+## Jetpack compatibility
+
+This branch uses TensorRT 7. If you are training and inferring models using PyTorch, or are creating TensorRT engines on Tesla GPUs (eg V100, T4), then you should use this branch.
+
+If you wish to deploy your model to a Jetson device (eg - Jetson AGX Xavier) running Jetpack version 4.3, then you should use the `19.10` branch of this repo.
 
 ## References
 

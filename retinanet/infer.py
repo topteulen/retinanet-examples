@@ -5,35 +5,46 @@ from contextlib import redirect_stdout
 import torch
 from apex import amp
 from apex.parallel import DistributedDataParallel as DDP
-from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
+import numpy as np
 
-from .data import DataIterator
+from .data import DataIterator, RotatedDataIterator
 from .dali import DaliDataIterator
 from .model import Model
-from .utils import Profiler
+from .utils import Profiler, rotate_box
 
-def infer(model, path, detections_file, resize, max_size, batch_size, mixed_precision=True, is_master=True, world=0, annotations=None, use_dali=True, is_validation=False, verbose=True, logdir=None, iteration = 100):
+
+def infer(model, path, detections_file, resize, max_size, batch_size, mixed_precision=True, is_master=True, world=0,
+          annotations=None, use_dali=True, is_validation=False, verbose=True, rotated_bbox=False):
     'Run inference on images from path'
 
     backend = 'pytorch' if isinstance(model, Model) or isinstance(model, DDP) else 'tensorrt'
+
+    # Set batch_size = 1 batch/GPU for EXPLICIT_BATCH compatibility in TRT
+    if backend is 'tensorrt':
+        batch_size = world
 
     stride = model.module.stride if isinstance(model, DDP) else model.stride
 
     # Create annotations if none was provided
     if not annotations:
         annotations = tempfile.mktemp('.json')
-        images = [{ 'id': i, 'file_name': f} for i, f in enumerate(os.listdir(path))]
-        json.dump({ 'images': images }, open(annotations, 'w'))
+        images = [{'id': i, 'file_name': f} for i, f in enumerate(os.listdir(path))]
+        json.dump({'images': images}, open(annotations, 'w'))
 
     # TensorRT only supports fixed input sizes, so override input size accordingly
     if backend == 'tensorrt': max_size = max(model.input_size)
 
     # Prepare dataset
     if verbose: print('Preparing dataset...')
-    data_iterator = (DaliDataIterator if use_dali else DataIterator)(
-        path, resize, max_size, batch_size, stride,
-        world, annotations, training=False)
+    if rotated_bbox:
+        if use_dali: raise NotImplementedError("This repo does not currently support DALI for rotated bbox detections.")
+        data_iterator = RotatedDataIterator(path, resize, max_size, batch_size, stride,
+                                            world, annotations, training=False)
+    else:
+        data_iterator = (DaliDataIterator if use_dali else DataIterator)(
+            path, resize, max_size, batch_size, stride,
+            world, annotations, training=False)
     if verbose: print(data_iterator)
 
     # Prepare model
@@ -43,18 +54,19 @@ def infer(model, path, detections_file, resize, max_size, batch_size, mixed_prec
         if not is_validation:
             if torch.cuda.is_available(): model = model.cuda()
             model = amp.initialize(model, None,
-                               opt_level = 'O2' if mixed_precision else 'O0',
-                               keep_batchnorm_fp32 = True,
-                               verbosity = 0)
+                                   opt_level='O2' if mixed_precision else 'O0',
+                                   keep_batchnorm_fp32=True,
+                                   verbosity=0)
 
         model.eval()
 
     if verbose:
         print('   backend: {}'.format(backend))
         print('    device: {} {}'.format(
-            world, 'cpu' if not torch.cuda.is_available() else 'gpu' if world == 1 else 'gpus'))
+            world, 'cpu' if not torch.cuda.is_available() else 'GPU' if world == 1 else 'GPUs'))
         print('     batch: {}, precision: {}'.format(batch_size,
-            'unknown' if backend is 'tensorrt' else 'mixed' if mixed_precision else 'full'))
+                                                     'unknown' if backend is 'tensorrt' else 'mixed' if mixed_precision else 'full'))
+        print(' BBOX type:', 'rotated' if rotated_bbox else 'axis aligned')
         print('Running inference...')
 
     results = []
@@ -63,7 +75,7 @@ def infer(model, path, detections_file, resize, max_size, batch_size, mixed_prec
         for i, (data, ids, ratios) in enumerate(data_iterator):
             # Forward pass
             profiler.start('fw')
-            scores, boxes, classes = model(data)
+            scores, boxes, classes = model(data, rotated_bbox)
             profiler.stop('fw')
 
             results.append([scores, boxes, classes, ids, ratios])
@@ -71,8 +83,8 @@ def infer(model, path, detections_file, resize, max_size, batch_size, mixed_prec
             profiler.bump('infer')
             if verbose and (profiler.totals['infer'] > 60 or i == len(data_iterator) - 1):
                 size = len(data_iterator.ids)
-                msg  = '[{:{len}}/{}]'.format(min((i + 1) * batch_size,
-                    size), size, len=len(str(size)))
+                msg = '[{:{len}}/{}]'.format(min((i + 1) * batch_size,
+                                                 size), size, len=len(str(size)))
                 msg += ' {:.3f}s/{}-batch'.format(profiler.means['infer'], batch_size)
                 msg += ' (fw: {:.3f}s)'.format(profiler.means['fw'])
                 msg += ', {:.1f} im/s'.format(batch_size / profiler.means['infer'])
@@ -104,25 +116,41 @@ def infer(model, path, detections_file, resize, max_size, batch_size, mixed_prec
 
             keep = (scores > 0).nonzero()
             scores = scores[keep].view(-1)
-            boxes = boxes[keep, :].view(-1, 4) / ratios
+            if rotated_bbox:
+                boxes = boxes[keep, :].view(-1, 6)
+                boxes[:, :4] /= ratios
+            else:
+                boxes = boxes[keep, :].view(-1, 4) / ratios
             classes = classes[keep].view(-1).int()
 
             for score, box, cat in zip(scores, boxes, classes):
-                x1, y1, x2, y2 = box.data.tolist()
+                if rotated_bbox:
+                    x1, y1, x2, y2, sin, cos = box.data.tolist()
+                    theta = np.arctan2(sin, cos)
+                    w = x2 - x1 + 1
+                    h = y2 - y1 + 1
+                    seg = rotate_box([x1, y1, w, h, theta])
+                else:
+                    x1, y1, x2, y2 = box.data.tolist()
                 cat = cat.item()
                 if 'annotations' in data_iterator.coco.dataset:
                     cat = data_iterator.coco.getCatIds()[cat]
-                detections.append({
+                this_det = {
                     'image_id': image_id,
                     'score': score.item(),
-                    'bbox': [x1, y1, x2 - x1 + 1, y2 - y1 + 1],
-                    'category_id': cat
-                })
+                    'category_id': cat}
+                if rotated_bbox:
+                    this_det['bbox'] = [x1, y1, x2 - x1 + 1, y2 - y1 + 1, theta]
+                    this_det['segmentation'] = [seg]
+                else:
+                    this_det['bbox'] = [x1, y1, x2 - x1 + 1, y2 - y1 + 1]
+
+                detections.append(this_det)
 
         if detections:
             # Save detections
             if detections_file and verbose: print('Writing {}...'.format(detections_file))
-            detections = { 'annotations': detections }
+            detections = {'annotations': detections}
             detections['images'] = data_iterator.coco.dataset['images']
             if 'categories' in data_iterator.coco.dataset:
                 detections['categories'] = [data_iterator.coco.dataset['categories']]
@@ -134,30 +162,12 @@ def infer(model, path, detections_file, resize, max_size, batch_size, mixed_prec
                 if verbose: print('Evaluating model...')
                 with redirect_stdout(None):
                     coco_pred = data_iterator.coco.loadRes(detections['annotations'])
-                    coco_eval = COCOeval(data_iterator.coco, coco_pred, 'bbox')
+                    if rotated_bbox:
+                        coco_eval = COCOeval(data_iterator.coco, coco_pred, 'segm')
+                    else:
+                        coco_eval = COCOeval(data_iterator.coco, coco_pred, 'bbox')
                     coco_eval.evaluate()
                     coco_eval.accumulate()
                 coco_eval.summarize()
-                results = coco_eval.stats
-                # Create TensorBoard writer
-                if logdir is not None:
-                    from tensorboardX import SummaryWriter
-                    if is_master and verbose:
-                        print('Infer writer: Writing TensorBoard logs to: {}'.format(logdir))
-                    writer = SummaryWriter(logdir=logdir)
-                    if results != []:
-                        writer.add_scalar('Average Precision/IoU=0.50:0.95/area=all/maxDets=100', results[0],iteration)
-                        writer.add_scalar('Average Precision/IoU=0.50/area=all/maxDets=100', results[1],iteration)
-                        writer.add_scalar('Average Precision/IoU=0.75/area=all/maxDets=100', results[2],iteration)
-                        writer.add_scalar('Average Precision/IoU=0.50:0.95/area=small/maxDets=100', results[3],iteration)
-                        writer.add_scalar('Average Precision/IoU=0.50:0.95/area=medium/maxDets=100', results[4],iteration)
-                        writer.add_scalar('Average Precision/IoU=0.50:0.95/area=large/maxDets=100', results[5],iteration)
-                        writer.add_scalar('Average Recall/IoU=0.50:0.95/area=all/maxDets=1', results[6],iteration)
-                        writer.add_scalar('Average Recall/IoU=0.50:0.95/area=all/maxDets=10', results[7],iteration)
-                        writer.add_scalar('Average Recall/IoU=0.50:0.95/area=all/maxDets=100', results[8],iteration)
-                        writer.add_scalar('Average Recall/IoU=0.50:0.95/area= small/maxDets=100', results[9],iteration)
-                        writer.add_scalar('Average Recall/IoU=0.50:0.95/area=medium/maxDets=100', results[10],iteration)
-                        writer.add_scalar('Average Recall/IoU=0.50:0.95/area= large/maxDets=100', results[11],iteration)
-                    writer.close()
         else:
             print('No detections!')
